@@ -3,7 +3,7 @@ const Redis = require('ioredis');
 const redis = new Redis();
 const app = new Koa();
 const router = require('koa-router')();
-
+const bodyParser = require('koa-bodyparser');
 
 async function responseTime(ctx, next) {
   const start = new Date();
@@ -39,28 +39,36 @@ async function errorHandler(ctx, next) {
 // middleware
 app.use(responseTime);
 app.use(logger());
+app.use(bodyParser());
 app.use(errorHandler);
 
 
-
-async function getMessages() {
-  const msg = await redis.get('foo');
-  return msg;
+// returns all messages for a uuid and deletes them afterwards
+async function popAllMessagesForUser(uuid) {
+  const messages = [];
+  const length = await redis.llen(uuid);
+  for (var i = length - 1; i >= 0; i--) {
+    let msg = await redis.lpop(uuid);
+    messages.push(JSON.parse(msg));
+  }
+  return messages;
 }
 
 
 router
-  .get('/', (ctx, next) => {
+  .get('/:uuid', async (ctx, next) => {
     try {
-      ctx.body = { message: getMessages() }
+      const messages = await popAllMessagesForUser(ctx.params.uuid);
+      ctx.body = { messages };
     }
     catch (err) {
       next(new Error(err));
     }
   })
-  .post('/', (ctx, next) => {
+  .post('/:uuid', (ctx, next) => {
     try {
-      redis.set('foo', Math.random() * 1000);
+      const body = ctx.request.body;
+      redis.lpush(ctx.params.uuid, JSON.stringify(body.message));
     }
     catch (err) {
       next(new Error(err))
